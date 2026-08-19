@@ -1,7 +1,4 @@
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import os
+from fastapi import FastAPI
 from dotenv import load_dotenv
 from routers.medicine_router import router as medicine_router
 from routers.order_router import router as order_router
@@ -11,20 +8,21 @@ load_dotenv()
 
 app = FastAPI(
     title="Amura Healthcare",
-    description="This is the API documentation for Amura Healthcare.",
+    description="This is the API documentation for Amura Healthcare Voice AI Agent.",
     version="1.0.0",
+    redoc_url=None,
 )
 
-# Mount static directory
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Include Routers
 app.include_router(medicine_router)
 app.include_router(order_router)
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root():
-    return FileResponse("static/index.html")
+    return {
+        "status": "online",
+        "service": "Amura Healthcare Voice AI Agent API",
+        "documentation": "/docs"
+    }
 
 @app.on_event("startup")
 def startup_db_check():

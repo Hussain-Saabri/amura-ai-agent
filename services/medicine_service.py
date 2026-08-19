@@ -261,7 +261,7 @@ def check_medicine_stock(medicine_name: Optional[Union[str, List[Any], Dict[str,
         if len(exact) == 1:
             if prefix_variants and len(norm_search_t.split()) == 1:
                 all_matched_variants = exact + prefix_variants
-                top_v = [f"{m['medicine_name']} ({m.get('package_type', '')})" for m in all_matched_variants[:5]]
+                top_v = [f"{m['medicine_name']}" + (f" ({m.get('package_type')})" if m.get('package_type') else "") + (f" [Code: {m.get('product_code')}]" if m.get('product_code') else "") for m in all_matched_variants[:5]]
                 first_v = top_v[0]
                 for cand in all_matched_variants[:5]:
                     c_name = cand['medicine_name'].strip().lower()
@@ -278,7 +278,7 @@ def check_medicine_stock(medicine_name: Optional[Union[str, List[Any], Dict[str,
                     confirmed_matches.append(m)
             continue
         elif len(exact) > 1:
-            top_v = [f"{m['medicine_name']} ({m.get('package_type', '')})" for m in exact[:5]]
+            top_v = [f"{m['medicine_name']}" + (f" ({m.get('package_type')})" if m.get('package_type') else "") + (f" [Code: {m.get('product_code')}]" if m.get('product_code') else "") for m in exact[:5]]
             first_v = top_v[0]
             for cand in exact[:5]:
                 c_name = cand['medicine_name'].strip().lower()
@@ -304,18 +304,16 @@ def check_medicine_stock(medicine_name: Optional[Union[str, List[Any], Dict[str,
             for cand in fuzzy_candidates[:5]:
                 c_name = cand['medicine_name'].strip().lower()
                 LAST_DISAMBIGUATION_STATE[c_name] = raw_t.strip().lower()
-            top_v_str = ", ".join([f"{m['medicine_name']}" + (f" [Code: {m.get('product_code')}]" if m.get('product_code') else "") for m in fuzzy_candidates[:5]])
+            variants_summary = ", ".join([f"{m['medicine_name']}" + (f" ({m.get('package_type')})" if m.get('package_type') else "") for m in fuzzy_candidates[:5]])
+            top_v_str = ", ".join([f"{m['medicine_name']}" + (f" ({m.get('package_type')})" if m.get('package_type') else "") + (f" [Code: {m.get('product_code')}]" if m.get('product_code') else "") for m in fuzzy_candidates[:5]])
             first_v = fuzzy_candidates[0]['medicine_name'].strip()
             first_code = fuzzy_candidates[0].get('product_code', '')
             code_str = f" [Code: {first_code}]" if first_code else ""
             disambiguation_notes.append(
-                f"For requested medicine '{raw_t}': [{top_v_str}]. "
-                f"INSTRUCTION: Multiple possible matches were found due to possible STT/phonetic spelling differences. "
-                f"Treat '{first_v}{code_str}' as the most likely intended medicine and ask the user for confirmation using a natural question such as 'Kya aap {first_v} ki baat kar rahe hain?'. "
-                f"Do not mention or list the other possible matches to the user. Wait for the user's response before continuing. "
-                f"If the user confirms with 'yes', 'ok', 'haan', or equivalent, YOU MUST call the save_stt_alias tool with stt_mishearing='{raw_t}' and correct_medicine='{first_v}', and accept '{first_v}'{code_str} as the requested medicine. "
-                f"After confirmation, continue processing the remaining medicines one by one in their original order. "
-                f"Do not ask about or mention any remaining medicine in the same response as the confirmation question."
+                f"For requested medicine '{raw_t}': Available variants are [{top_v_str}]. "
+                f"INSTRUCTION: Inform the caller that multiple variants are available for '{raw_t}' (such as {variants_summary}), "
+                f"and ask them which specific variant, dosage, or package type they need (e.g., 'Aapko Soframycin ka kaunsa variant chahiye?'). "
+                f"Wait for the caller to specify their choice before confirming the item."
             )
         else:
             not_found_terms.append(raw_t.strip())

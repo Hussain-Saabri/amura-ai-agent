@@ -1,39 +1,29 @@
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional
 from pydantic import BaseModel
 from fastapi import APIRouter
 import controllers.medicine_controller as medicine_controller
 
+from fastapi import APIRouter, Query
+
 router = APIRouter(prefix="/api", tags=["Medicines"])
 
-class CheckMedicineRequest(BaseModel):
-    medicine_name: Optional[Union[str, List[Any], Dict[str, Any]]] = None
-    medicines: Optional[Union[List[Any], str]] = None
-
-@router.post("/check-medicine")
-def check_medicine_post(req: Optional[CheckMedicineRequest] = None):
-    payload = req.model_dump() if req else None
-    print(f"🔍 [AI REQUEST - /api/check-medicine]: {payload}", flush=True)
-    med_name = None
-    if req:
-        if req.medicine_name:
-            med_name = req.medicine_name
-        elif req.medicines:
-            med_name = req.medicines
-    res = medicine_controller.check_medicine_controller(med_name)
-    agent_prompt = res.get("agent_prompt") if isinstance(res, dict) else res
-    print(f"📤 [AI RESPONSE agent_prompt]:\n{agent_prompt}\n", flush=True)
-    return res
-
-@router.get("/check-medicine")
-def check_medicine(medicine_name: Optional[str] = None):
+@router.get(
+    "/check-medicine",
+    summary="Check Medicine Availability / Search Catalogue",
+    description="Check stock, price, substitutes, and variants for a medicine. Pass `medicine_name` query parameter (e.g. 'soframycin', 'calpol 500'). Leave blank to fetch catalogue."
+)
+def check_medicine(
+    medicine_name: Optional[str] = Query(
+        None,
+        description="Name of the medicine to check (e.g. 'soframycin', 'calpol 500', 'razo plus'). Leave empty for catalogue prompt.",
+        example="soframycin"
+    )
+):
+    print(f"🔍 [AI REQUEST - GET /api/check-medicine]: medicine_name='{medicine_name}'", flush=True)
     res = medicine_controller.check_medicine_controller(medicine_name)
     agent_prompt = res.get("agent_prompt") if isinstance(res, dict) else res
     print(f"📤 [AI RESPONSE agent_prompt]:\n{agent_prompt}\n", flush=True)
     return res
-
-@router.get("/medicines")
-def api_get_all_medicines():
-    return medicine_controller.get_all_medicines_controller()
 
 from fastapi import Request
 
