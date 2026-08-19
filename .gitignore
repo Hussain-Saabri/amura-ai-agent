@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Call artifacts (recordings / transcripts may contain PII — DPDP)
+recordings/
+transcripts/
+*.wav
+*.mp3
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

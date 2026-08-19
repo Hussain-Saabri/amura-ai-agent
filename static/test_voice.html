@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Voice Input</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #1e212b; /* Dark background */
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: #fff;
+            margin-bottom: 20px;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 600px;
+            height: 500px;
+            background: #1e212b;
+            padding: 15px;
+            border-radius: 12px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .message {
+            max-width: 75%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 16px;
+            line-height: 1.4;
+            color: #fff;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background-color: #6d61f2; /* Purple/Blue */
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .ai-message {
+            background-color: #333a47; /* Dark Grey */
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        .system-message {
+            align-self: center;
+            color: #888;
+            font-size: 14px;
+            font-style: italic;
+            max-width: 100%;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            background-color: #6d61f2;
+            color: #fff;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        button:hover {
+            background-color: #5548c8;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        button.listening {
+            background-color: #dc3545;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Voice Assistant</h1>
+    <div id="chat-container">
+        <div class="message system-message">Click 'Start Microphone' and start speaking...</div>
+    </div>
+    <div style="display: flex; gap: 10px;">
+        <button id="start-btn">Start Microphone</button>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const startBtn = document.getElementById('start-btn');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        function appendMessage(text, type) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${type}-message`;
+            msgDiv.innerHTML = text;
+            chatContainer.appendChild(msgDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return msgDiv;
+        }
+
+        async function initAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioChunks = [];
+                    
+                    let systemMsg = appendMessage("Processing audio...", "system");
+                    
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = async () => {
+                        const base64data = reader.result.split(',')[1];
+                        
+                        try {
+                            const response = await fetch('/api/stt', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ audio_base64: base64data })
+                            });
+                            const result = await response.json();
+                            systemMsg.remove(); // Remove processing message
+                            
+                            if (result.text) {
+                                appendMessage(result.text, "user");
+                                
+                                // Automatically send to LLM (AI Brain)
+                                let aiThinkingMsg = appendMessage("AI is thinking...", "system");
+                                
+                                const aiResponse = await fetch('/api/frontend-log', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ text: result.text })
+                                });
+                                const aiResult = await aiResponse.json();
+                                aiThinkingMsg.remove();
+                                
+                                if (aiResult.reply) {
+                                    let aiBubble = appendMessage(aiResult.reply, "ai");
+                                    
+                                    // Automatically play with TTS
+                                    let ttsStatus = document.createElement('div');
+                                    ttsStatus.className = "message system-message";
+                                    ttsStatus.innerText = "Loading audio...";
+                                    chatContainer.appendChild(ttsStatus);
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                    
+                                    const ttsResponse = await fetch('/api/tts', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ text: aiResult.reply })
+                                    });
+                                    const ttsResult = await ttsResponse.json();
+                                    
+                                    if (ttsResult.audio) {
+                                        const audio = new Audio("data:audio/wav;base64," + ttsResult.audio);
+                                        audio.play();
+                                        ttsStatus.innerText = "Playing audio...";
+                                        audio.onended = () => ttsStatus.remove();
+                                    } else {
+                                        ttsStatus.innerText = "Failed to load audio.";
+                                    }
+                                }
+                            } else {
+                                appendMessage("[No text recognized]", "system");
+                            }
+                        } catch (e) {
+                            if(systemMsg) systemMsg.remove();
+                            appendMessage(`[Error: ${e.message}]`, "system");
+                        }
+                    };
+                };
+            } catch (err) {
+                appendMessage("Error accessing microphone: " + err, "system");
+            }
+        }
+
+        initAudio();
+
+        startBtn.addEventListener('click', () => {
+            if (!mediaRecorder) {
+                alert("Microphone not initialized yet. Please allow permissions.");
+                return;
+            }
+            if (isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                startBtn.textContent = "Start Microphone";
+                startBtn.classList.remove("listening");
+            } else {
+                audioChunks = [];
+                mediaRecorder.start();
+                isRecording = true;
+                startBtn.textContent = "Stop & Process";
+                startBtn.classList.add("listening");
+                appendMessage("Listening...", "system");
+            }
+        });
+    </script>
+</body>
+</html>

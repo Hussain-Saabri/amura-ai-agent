@@ -1,2 +1,13 @@
 fastapi
 uvicorn
+websockets
+sqlalchemy
+pymysql
+pyodbc
+httpx
+openai
+google-generativeai
+pyngrok
+python-dotenv
+sarvamai
+mcp

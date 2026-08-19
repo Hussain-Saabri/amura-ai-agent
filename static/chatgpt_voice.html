@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amura AI - Realtime Voice</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10a37f;
+            --primary-hover: #0e906f;
+            --bg-color: #000000;
+            --text-color: #ffffff;
+            --glass-bg: rgba(255, 255, 255, 0.1);
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            z-index: 2;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        p.subtitle {
+            color: #a3a3a3;
+            margin-bottom: 3rem;
+        }
+        /* The Orb / Circle */
+        .orb-container {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 3rem auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .orb {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--primary) 0%, #000000 100%);
+            box-shadow: 0 0 40px rgba(16, 163, 127, 0.4);
+            transition: all 0.2s ease;
+            position: relative;
+            z-index: 2;
+            cursor: pointer;
+        }
+        .orb.listening {
+            animation: pulse-listen 1.5s infinite alternate;
+        }
+        .orb.speaking {
+            animation: pulse-speak 0.5s infinite alternate;
+        }
+        /* Ripples */
+        .ripple {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: rgba(16, 163, 127, 0.3);
+            z-index: 1;
+            opacity: 0;
+        }
+        .orb.active ~ .ripple {
+            animation: ripple-effect 2s infinite;
+        }
+        @keyframes pulse-listen {
+            0% { transform: scale(1); box-shadow: 0 0 20px rgba(16, 163, 127, 0.4); }
+            100% { transform: scale(1.05); box-shadow: 0 0 40px rgba(16, 163, 127, 0.8); }
+        }
+        @keyframes pulse-speak {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.15); box-shadow: 0 0 60px rgba(16, 163, 127, 1); }
+        }
+        @keyframes ripple-effect {
+            0% { width: 150px; height: 150px; opacity: 0.8; }
+            100% { width: 300px; height: 300px; opacity: 0; }
+        }
+        
+        .status-text {
+            font-size: 1.2rem;
+            color: #d4d4d4;
+            min-height: 30px;
+        }
+        
+        .logs {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 600px;
+            height: 150px;
+            overflow-y: auto;
+            background: var(--glass-bg);
+            border-radius: 12px;
+            padding: 10px;
+            font-size: 0.85rem;
+            color: #a3a3a3;
+            text-align: left;
+            backdrop-filter: blur(10px);
+        }
+        .logs p {
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 4px;
+        }
+        .logs p span.tool { color: #f59e0b; }
+        .logs p span.system { color: #3b82f6; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Amura AI</h1>
+        <p class="subtitle">Advanced Voice Mode</p>
+
+        <div class="orb-container" id="orb-container">
+            <div class="orb" id="orb"></div>
+            <div class="ripple"></div>
+        </div>
+
+        <div class="status-text" id="status-text">Tap to Connect</div>
+    </div>
+    
+    <div class="logs" id="logs"></div>
+    
+    <!-- Audio element for remote stream -->
+    <audio id="remote-audio" autoplay></audio>
+
+    <script>
+        const orb = document.getElementById('orb');
+        const statusText = document.getElementById('status-text');
+        const logsDiv = document.getElementById('logs');
+        const remoteAudio = document.getElementById('remote-audio');
+        
+        let pc = null;
+        let dc = null;
+        let localStream = null;
+        let isConnected = false;
+        
+        function logMsg(msg, type="system") {
+            const p = document.createElement('p');
+            p.innerHTML = `<span class="${type}">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+            logsDiv.appendChild(p);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        async function initWebRTC() {
+            logMsg("Fetching ephemeral token...", "system");
+            statusText.innerText = "Connecting...";
+            
+            try {
+                // 1. Get Token
+                const tokenResponse = await fetch("/api/realtime-session");
+                const tokenData = await tokenResponse.json();
+                
+                if (tokenData.error) {
+                    throw new Error(tokenData.error);
+                }
+                
+                const EPHEMERAL_KEY = tokenData.value;
+                logMsg("Token received.", "system");
+
+                // 2. Setup RTCPeerConnection
+                pc = new RTCPeerConnection();
+
+                // 3. Audio output
+                pc.ontrack = e => {
+                    remoteAudio.srcObject = e.streams[0];
+                    logMsg("Audio track received.", "system");
+                };
+
+                // 4. Capture Mic
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                pc.addTrack(localStream.getTracks()[0]);
+                logMsg("Microphone connected.", "system");
+
+                // 5. Data Channel
+                dc = pc.createDataChannel("oai-events");
+                
+                dc.onopen = () => {
+                    logMsg("Data channel open.", "system");
+                    isConnected = true;
+                    statusText.innerText = "Listening...";
+                    orb.classList.add("active", "listening");
+                };
+                
+                dc.onmessage = handleDataChannelMessage;
+
+                // 6. Create Offer & Set Local Description
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                // 7. Send SDP to OpenAI
+                const baseUrl = "https://api.openai.com/v1/realtime";
+                const sdpResponse = await fetch(baseUrl, {
+                    method: "POST",
+                    body: offer.sdp,
+                    headers: {
+                        "Authorization": `Bearer ${EPHEMERAL_KEY}`,
+                        "Content-Type": "application/sdp"
+                    },
+                });
+
+                if (!sdpResponse.ok) {
+                    const errText = await sdpResponse.text();
+                    throw new Error(`OpenAI SDP Error: ${errText}`);
+                }
+
+                const answerSdp = await sdpResponse.text();
+                await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+                logMsg("WebRTC connected.", "system");
+                
+            } catch (err) {
+                logMsg(`Connection failed: ${err.message}`, "system");
+                statusText.innerText = "Connection Failed";
+            }
+        }
+        
+        async function handleDataChannelMessage(e) {
+            const event = JSON.parse(e.data);
+            
+            // Visual feedback based on AI speaking
+            if (event.type === "response.audio.delta") {
+                orb.classList.remove("listening");
+                orb.classList.add("speaking");
+                statusText.innerText = "Speaking...";
+            }
+            if (event.type === "response.audio.done") {
+                orb.classList.remove("speaking");
+                orb.classList.add("listening");
+                statusText.innerText = "Listening...";
+            }
+            
+            // Handle Tool Calls
+            if (event.type === "response.function_call_arguments.done") {
+                const callId = event.call_id;
+                const name = event.name;
+                const args = JSON.parse(event.arguments);
+                
+                logMsg(`Calling tool: ${name}(${JSON.stringify(args)})`, "tool");
+                
+                let resultObj = {};
+                try {
+                    if (name === "get_medicine_stock") {
+                        const res = await fetch(`/api/check-medicine?medicine_name=${args.medicine_name}`);
+                        resultObj = await res.json();
+                    } else if (name === "add_to_cart") {
+                        const res = await fetch('/api/cart/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(args) });
+                        resultObj = await res.json();
+                    } else if (name === "remove_from_cart") {
+                        const res = await fetch('/api/cart/remove', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(args) });
+                        resultObj = await res.json();
+                    } else if (name === "view_cart") {
+                        const res = await fetch('/api/cart/view');
+                        resultObj = await res.json();
+                    } else if (name === "clear_cart") {
+                        const res = await fetch('/api/cart/clear', { method: 'POST' });
+                        resultObj = await res.json();
+                    } else if (name === "place_bulk_order") {
+                        const res = await fetch('/api/place-order', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(args) });
+                        resultObj = await res.json();
+                    } else if (name === "change_language") {
+                        resultObj = { status: "success", message: `Language changed to ${args.language_code}. Please reply in this language.` };
+                    }
+                } catch (err) {
+                    resultObj = { error: err.message };
+                }
+                
+                logMsg(`Tool result: ${JSON.stringify(resultObj)}`, "tool");
+                
+                // Send result back to OpenAI
+                const toolResponse = {
+                    type: "conversation.item.create",
+                    item: {
+                        type: "function_call_output",
+                        call_id: callId,
+                        output: JSON.stringify(resultObj)
+                    }
+                };
+                
+                dc.send(JSON.stringify(toolResponse));
+                
+                // Prompt AI to generate response to the tool output
+                dc.send(JSON.stringify({ type: "response.create" }));
+            }
+        }
+
+        function stopWebRTC() {
+            if (dc) dc.close();
+            if (pc) pc.close();
+            if (localStream) localStream.getTracks().forEach(t => t.stop());
+            
+            isConnected = false;
+            orb.classList.remove("active", "listening", "speaking");
+            statusText.innerText = "Tap to Connect";
+            logMsg("Disconnected.", "system");
+        }
+
+        orb.addEventListener('click', () => {
+            if (isConnected) {
+                stopWebRTC();
+            } else {
+                initWebRTC();
+            }
+        });
+    </script>
+</body>
+</html>
