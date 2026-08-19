@@ -1,12 +1,14 @@
-# Environment variables
+# Environment variables and secrets
 .env
 .env.*
 *.env
+!.env.example
 
 # Python cache and bytecode
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 
 # Virtual environments
 venv/
@@ -15,6 +17,12 @@ env/
 ENV/
 env.bak/
 venv.bak/
+
+# Audio / Media recordings / Transcripts
+recordings/
+transcripts/
+*.wav
+*.mp3
 
 # IDE & Editor settings
 .vscode/
@@ -25,3 +33,4 @@ venv.bak/
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini

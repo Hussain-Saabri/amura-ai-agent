@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amura AI Chat</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-color: #0f172a;
+            --chat-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --user-msg: #6366f1;
+            --ai-msg: #334155;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 500px;
+            height: 90vh;
+            background: var(--chat-bg);
+            border-radius: 20px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chat-header {
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+            font-weight: 600;
+            font-size: 1.2rem;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .chat-header .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #22c55e;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #22c55e;
+        }
+
+        .chat-box {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            scroll-behavior: smooth;
+        }
+
+        /* Scrollbar styles */
+        .chat-box::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-box::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-box::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 15px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            animation: fadeIn 0.3s ease;
+            word-wrap: break-word;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--user-msg);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.ai {
+            align-self: flex-start;
+            background: var(--ai-msg);
+            border-bottom-left-radius: 4px;
+        }
+
+        .input-area {
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 14px 20px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        input[type="text"]::placeholder {
+            color: var(--text-muted);
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        button {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            border: none;
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        button:hover {
+            background: var(--primary-hover);
+            transform: scale(1.05);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        #voice-btn {
+            background: #3b82f6;
+        }
+        #voice-btn:hover { background: #2563eb; }
+        
+        #voice-btn.recording {
+            background: #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .typing-indicator {
+            align-self: flex-start;
+            background: var(--ai-msg);
+            padding: 12px 16px;
+            border-radius: 15px;
+            border-bottom-left-radius: 4px;
+            display: none;
+            gap: 5px;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        <div class="chat-header">
+            <div class="status-dot"></div>
+            Amura Assistant
+        </div>
+        
+        <div class="chat-box" id="chat-box">
+            <div class="message ai">Hello! I am your Amura Assistant. How can I help you today?</div>
+            
+            <div class="typing-indicator" id="typing-indicator">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <button id="voice-btn" title="Hold to Speak">
+                <!-- Mic Icon -->
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+            </button>
+            <input type="text" id="text-input" placeholder="Type a message..." autocomplete="off">
+            <button id="send-btn" title="Send Text">
+                <!-- Send Icon -->
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 2px;">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        const textInput = document.getElementById('text-input');
+        const sendBtn = document.getElementById('send-btn');
+        const voiceBtn = document.getElementById('voice-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        // Initialize Audio
+        async function initAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioChunks = [];
+                    
+                    showTypingIndicator();
+                    
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = async () => {
+                        const base64data = reader.result.split(',')[1];
+                        try {
+                            const response = await fetch('/api/stt', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ audio_base64: base64data })
+                            });
+                            const result = await response.json();
+                            
+                            if (result.text) {
+                                hideTypingIndicator();
+                                addMessage(result.text, 'user');
+                                await processAIResponse(result.text);
+                            } else {
+                                hideTypingIndicator();
+                                addMessage("Sorry, I couldn't catch that.", 'ai');
+                            }
+                        } catch (e) {
+                            hideTypingIndicator();
+                            addMessage("Error processing audio.", 'ai');
+                        }
+                    };
+                };
+            } catch (err) {
+                console.error("Mic access denied.", err);
+            }
+        }
+        initAudio();
+
+        // UI Helpers
+        function addMessage(text, sender) {
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message', sender);
+            msgDiv.textContent = text;
+            chatBox.insertBefore(msgDiv, typingIndicator);
+            scrollToBottom();
+            return msgDiv;
+        }
+
+        function showTypingIndicator() {
+            typingIndicator.style.display = 'flex';
+            scrollToBottom();
+        }
+
+        function hideTypingIndicator() {
+            typingIndicator.style.display = 'none';
+        }
+
+        function scrollToBottom() {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Send Text Logic
+        async function handleSendText() {
+            const text = textInput.value.trim();
+            if (!text) return;
+
+            textInput.value = '';
+            addMessage(text, 'user');
+            await processAIResponse(text);
+        }
+
+        let audioQueue = [];
+        let isPlayingAudio = false;
+
+        function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlayingAudio = false;
+                return;
+            }
+            isPlayingAudio = true;
+            const audioBase64 = audioQueue.shift();
+            const audio = new Audio("data:audio/wav;base64," + audioBase64);
+            audio.onended = playNextAudio;
+            audio.play().catch(err => {
+                console.error("Audio playback error:", err);
+                playNextAudio();
+            });
+        }
+
+        async function processAIResponse(userText) {
+            showTypingIndicator();
+            try {
+                const response = await fetch('/api/stream-chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: userText })
+                });
+
+                hideTypingIndicator();
+                let messageDiv = null;
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    let lines = buffer.split('\n\n');
+                    buffer = lines.pop(); // Keep the last incomplete part
+
+                    for (let line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.substring(6);
+                            try {
+                                const payload = JSON.parse(dataStr);
+                                if (!messageDiv) {
+                                    messageDiv = addMessage(payload.text, 'ai');
+                                } else {
+                                    // Append text to existing message
+                                    messageDiv.innerText += " " + payload.text;
+                                    scrollToBottom();
+                                }
+
+                                if (payload.audio) {
+                                    audioQueue.push(payload.audio);
+                                    if (!isPlayingAudio) {
+                                        playNextAudio();
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("Parse error:", e);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                hideTypingIndicator();
+                addMessage("Oops, something went wrong connecting to the brain.", 'ai');
+            }
+        }
+
+        // Event Listeners
+        sendBtn.addEventListener('click', handleSendText);
+        textInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleSendText();
+        });
+
+        voiceBtn.addEventListener('click', () => {
+            if (!mediaRecorder) {
+                alert("Microphone not available.");
+                return;
+            }
+            if (isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                voiceBtn.classList.remove('recording');
+            } else {
+                audioChunks = [];
+                mediaRecorder.start();
+                isRecording = true;
+                voiceBtn.classList.add('recording');
+            }
+        });
+    </script>
+</body>
+</html>
