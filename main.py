@@ -15,7 +15,7 @@ app = FastAPI(
 # Include Routers
 app.include_router(medicine_router)
 app.include_router(order_router)
-print("testing the branch")
+
 @app.get("/")
 def root():
     return {"message": "Amura Healthcare Voice AI Agent is running"}

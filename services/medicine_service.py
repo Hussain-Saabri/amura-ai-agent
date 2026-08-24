@@ -161,18 +161,7 @@ def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
     not_found_terms = []
     seen_confirmed = set()
 
-    learned_aliases = db.get_learned_stt_aliases()
-    
-    combined_aliases = learned_aliases
-
-    raw_clean = raw_t.strip().lower()
-   
-    # adding the misspellings to the combined_aliases
-    if raw_clean in LAST_DISAMBIGUATION_STATE:
-        stt_wrong_word = LAST_DISAMBIGUATION_STATE.pop(raw_clean)
-        db.save_learned_stt_alias(stt_wrong_word, raw_t.strip())
-
-    search_t = combined_aliases.get(raw_clean, raw_t)
+    search_t = raw_t
     norm_search_t = normalize_dosage(search_t)
     
     # O(1) Fast Exact Match
@@ -205,9 +194,7 @@ def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
             if best_name not in seen_confirmed:
                 seen_confirmed.add(best_name)
                 confirmed_matches.append(best_match)
-                # Auto-Save Fuzzy STT Mishearing to DB Table!
-                if raw_t.strip().lower() != best_name.lower():
-                    db.save_learned_stt_alias(raw_t.strip(), best_name)
+
         elif fuzzy_candidates:
             for cand in fuzzy_candidates[:5]:
                 c_name = cand['medicine_name'].strip().lower()

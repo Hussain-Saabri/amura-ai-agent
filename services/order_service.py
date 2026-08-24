@@ -37,20 +37,7 @@ def parse_items_node(node):
     return items
 
 def place_order(req: UnifiedOrderRequest) -> Dict[str, Any]:
-    try:
-        from services.medicine_service import LAST_DISAMBIGUATION_STATE
-        parsed_items = parse_items_node(req)
-        for item in parsed_items:
-            if isinstance(item, dict):
-                m_name = item.get("medicine_name") or item.get("product_name")
-                if m_name:
-                    med_clean = m_name.strip().lower()
-                    if med_clean in LAST_DISAMBIGUATION_STATE:
-                        stt_wrong_word = LAST_DISAMBIGUATION_STATE.pop(med_clean)
-                        db.save_learned_stt_alias(stt_wrong_word, m_name)
-    except Exception as e:
-        logger.warning(f"Note on order alias auto-learn: {e}")
-        
     result = db.place_bulk_order(req)
     return {"status": "success", "message": result}
+
 
