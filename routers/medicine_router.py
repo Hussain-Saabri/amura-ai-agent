@@ -48,25 +48,3 @@ async def check_medicine(
     return res
 
 
-@router.post("/save-stt-alias", summary="Save Learned STT Alias")
-async def save_stt_alias_endpoint(request: Request):
-    import db, json
-    stt_m = ""
-    corr_m = ""
-    try:
-        raw_body = await request.body()
-        if raw_body:
-            data = json.loads(raw_body.decode("utf-8"))
-            if isinstance(data, dict):
-                clean_data = {str(k).strip(): str(v).strip() for k, v in data.items()}
-                stt_m = clean_data.get("stt_mishearing", "")
-                corr_m = clean_data.get("correct_medicine", "")
-                if stt_m.lower().startswith("stt_mishearing:"):
-                    stt_m = stt_m[len("stt_mishearing:"):].strip()
-                if corr_m.lower().startswith("correct_medicine:"):
-                    corr_m = corr_m[len("correct_medicine:"):].strip()
-    except Exception as e:
-        logger.error(f"Error parsing save-stt-alias payload: {e}")
-
-    success = db.save_learned_stt_alias(stt_m, corr_m)
-    return {"status": "success" if success else "failed", "stt_mishearing": stt_m, "correct_medicine": corr_m}

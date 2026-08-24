@@ -326,69 +326,6 @@ def check_db_connection():
         logger.error(f"❌ Database connection failed: {e}")
         return False
 
-def init_stt_alias_table():
-    try:
-        with engine.begin() as connection:
-            connection.execute(text("""
-                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'stt_alias_m')
-                BEGIN
-                    CREATE TABLE stt_alias_m (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
-                        stt_mishearing VARCHAR(255) UNIQUE NOT NULL,
-                        correct_medicine VARCHAR(255) NOT NULL,
-                        created_at DATETIME DEFAULT GETDATE()
-                    );
-                END
-            """))
-    except Exception as e:
-        logger.error(f"Error initializing stt_alias_m table: {e}")
-
-try:
-    init_stt_alias_table()
-except Exception:
-    pass
-
-def get_learned_stt_aliases() -> dict:
-    """Fetch all learned STT mishearings mapped to their correct medicine names."""
-    aliases = {}
-    try:
-        with engine.connect() as connection:
-            query = text("SELECT stt_mishearing, correct_medicine FROM stt_alias_m")
-            rows = connection.execute(query).fetchall()
-            for r in rows:
-                aliases[r.stt_mishearing.strip().lower()] = r.correct_medicine.strip()
-    except Exception as e:
-        init_stt_alias_table()
-    return aliases
-
-def save_learned_stt_alias(stt_mishearing: str, correct_medicine: str) -> bool:
-    """Save or update a learned STT mishearing alias into DB."""
-    if not stt_mishearing or not correct_medicine:
-        return False
-    stt_clean = stt_mishearing.strip().lower()
-    correct_clean = correct_medicine.strip()
-    if stt_clean == correct_clean.lower():
-        return False
-    try:
-        with engine.begin() as connection:
-            query = text("""
-                MERGE INTO stt_alias_m WITH (HOLDLOCK) AS target
-                USING (SELECT :stt_mishearing AS stt_mishearing, :correct_medicine AS correct_medicine) AS source
-                ON (target.stt_mishearing = source.stt_mishearing)
-                WHEN MATCHED THEN
-                    UPDATE SET target.correct_medicine = source.correct_medicine
-                WHEN NOT MATCHED THEN
-                    INSERT (stt_mishearing, correct_medicine)
-                    VALUES (source.stt_mishearing, source.correct_medicine);
-            """)
-            connection.execute(query, {
-                "stt_mishearing": stt_clean,
-                "correct_medicine": correct_clean
-            })
-            logger.info(f"✅ Dynamic STT Alias Learned & Saved: '{stt_clean}' ➡️ '{correct_clean}'")
-            return True
-    except Exception as e:
-        logger.error(f"Error saving STT alias: {e}")
 
 def get_medicine_stock(medicine_name=None):
     from services.medicine_service import check_medicine_stock

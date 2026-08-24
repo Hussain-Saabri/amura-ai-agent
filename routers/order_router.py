@@ -8,7 +8,7 @@ logger = logging.getLogger("uvicorn.info")
 
 router = APIRouter(prefix="/api", tags=["Orders"])
 
-@router.post("/place-order")
+
 @router.post("/order")
 async def api_place_order(request: Request):
     raw_body = await request.body()
@@ -26,4 +26,5 @@ async def api_place_order(request: Request):
             
     req = UnifiedOrderRequest(**data) if data else UnifiedOrderRequest()
     return order_controller.place_order_controller(req)
+
 
