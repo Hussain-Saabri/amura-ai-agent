@@ -18,7 +18,7 @@ app.include_router(order_router)
 
 @app.get("/")
 def root():
-    return {"message": "Amura Healthcare Voice AI Agent is running"}
+    return {"message": "Amura Healthcare Voice AI Agent"}
 
 @app.on_event("startup")
 def startup_db_check():
