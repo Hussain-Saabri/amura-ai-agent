@@ -1,18 +1,27 @@
 import os
+import logging
+from typing import Optional
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 load_dotenv()
+
+logger = logging.getLogger("uvicorn.info")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL is not set in environment variables / .env file.")
 engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=20)
 
-def get_all_medicines_details() -> list:
+def get_medicine_details(medicine_name: Optional[str] = None) -> list:
     """
-    Returns a list of all medicines with their product_code, stock, price, and status.
+    Returns medicines matching medicine_name using direct MSSQL DIFFERENCE() and LIKE filtering.
+    Returns empty list if no medicine_name is provided.
     """
+    if not medicine_name or not isinstance(medicine_name, str) or not medicine_name.strip():
+        return []
+
+    clean_name = medicine_name.strip()
     try:
         with engine.connect() as connection:
             query = text("""
@@ -21,14 +30,32 @@ def get_all_medicines_details() -> list:
                     p.product_name,
                     g.generic_name,
                     p.package_type,
-                    SUM(b.stock_quantity) as total_stock, 
-                    MIN(b.selling_price) as min_price 
+                    SUM(b.stock_quantity) AS total_stock, 
+                    MIN(b.selling_price) AS min_price 
                 FROM product_m p 
                 JOIN batch_m b ON p.product_code = b.product_code
                 JOIN generic_m g ON p.generic_code = g.generic_code 
+                WHERE LEFT(p.product_name, 1) = :first_char
+                  AND (
+                      DIFFERENCE(p.product_name, :med_name) >= 3 
+                      OR p.product_name LIKE :med_like
+                  )
                 GROUP BY p.product_code, p.product_name, g.generic_name, p.package_type
+                ORDER BY 
+                    CASE 
+                        WHEN p.product_name LIKE :med_like THEN 1 
+                        ELSE 2 
+                    END,
+                    DIFFERENCE(p.product_name, :med_name) DESC
             """)
-            results = connection.execute(query).fetchall()
+            results = connection.execute(
+                query, 
+                {
+                    "med_name": clean_name, 
+                    "first_char": clean_name[0], 
+                    "med_like": f"%{clean_name}%"
+                }
+            ).fetchall()
             
             available_by_generic = {}
             parsed_results = []
@@ -65,7 +92,10 @@ def get_all_medicines_details() -> list:
                 
             return medicines
     except Exception as e:
+        logger.error(f"Error in get_all_medicines_details: {e}")
         return []
+
+
 
 
 def place_bulk_order(data) -> str:
@@ -282,7 +312,7 @@ def search_medicine_fuzzy(terms: list) -> list:
                             "status": "available" if stock > 0 else "out_of_stock"
                         })
     except Exception as e:
-        print(f"Error in search_medicine_fuzzy: {e}", flush=True)
+        logger.error(f"Error in search_medicine_fuzzy: {e}")
     return results
 
 
@@ -290,10 +320,10 @@ def check_db_connection():
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-            print("✅ Database connected successfully!", flush=True)
+            logger.info("✅ Database connected successfully!")
             return True
     except Exception as e:
-        print(f"❌ Database connection failed: {e}", flush=True)
+        logger.error(f"❌ Database connection failed: {e}")
         return False
 
 def init_stt_alias_table():
@@ -311,7 +341,7 @@ def init_stt_alias_table():
                 END
             """))
     except Exception as e:
-        print(f"Error initializing stt_alias_m table: {e}", flush=True)
+        logger.error(f"Error initializing stt_alias_m table: {e}")
 
 try:
     init_stt_alias_table()
@@ -355,18 +385,12 @@ def save_learned_stt_alias(stt_mishearing: str, correct_medicine: str) -> bool:
                 "stt_mishearing": stt_clean,
                 "correct_medicine": correct_clean
             })
-            print(f"✅ Dynamic STT Alias Learned & Saved: '{stt_clean}' ➡️ '{correct_clean}'", flush=True)
+            logger.info(f"✅ Dynamic STT Alias Learned & Saved: '{stt_clean}' ➡️ '{correct_clean}'")
             return True
     except Exception as e:
-        print(f"Error saving STT alias: {e}", flush=True)
+        logger.error(f"Error saving STT alias: {e}")
+
 def get_medicine_stock(medicine_name=None):
     from services.medicine_service import check_medicine_stock
     return check_medicine_stock(medicine_name)
-
-try:
-    check_db_connection()
-except Exception:
-    pass
-
-
 

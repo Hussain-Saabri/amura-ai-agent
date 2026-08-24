@@ -1,8 +1,11 @@
+import logging
 from typing import Dict, Any
 from schemas.order import UnifiedOrderRequest
 import db
 
 import json
+
+logger = logging.getLogger("uvicorn.info")
 
 def parse_items_node(node):
     items = []
@@ -46,7 +49,7 @@ def place_order(req: UnifiedOrderRequest) -> Dict[str, Any]:
                         stt_wrong_word = LAST_DISAMBIGUATION_STATE.pop(med_clean)
                         db.save_learned_stt_alias(stt_wrong_word, m_name)
     except Exception as e:
-        print(f"Note on order alias auto-learn: {e}", flush=True)
+        logger.warning(f"Note on order alias auto-learn: {e}")
         
     result = db.place_bulk_order(req)
     return {"status": "success", "message": result}

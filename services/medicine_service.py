@@ -48,61 +48,6 @@ def get_medicine_catalogue_prompt(data=None) -> Dict[str, str]:
     )
     return {"agent_prompt": full_text}
 
-PHONETIC_ALIASES = {
-    "alcohol 500": "calpol 500",
-    "alcohol 500mg": "calpol 500",
-    "alcohol": "calpol 500",
-    "pant 40": "pan 40",
-    "pant 40mg": "pan 40",
-    "pantocit": "pantocid 40",
-    "pantocid": "pantocid 40",
-    "otrvin": "otrivin",
-    "doloo": "dolo 650",
-    "crocin 500": "crocin 500mg",
-    "can b fourth 200": "candiforce 200",
-    "can b fourth": "candiforce 200",
-    "candy 4 200": "candiforce 200",
-    "candy 4": "candiforce 200",
-    "candy force 200": "candiforce 200",
-    "candy force": "candiforce 200",
-    "condiforce 200": "candiforce 200",
-    "condiforce": "candiforce 200",
-    "candiforce": "candiforce 200",
-    "city rizin 10 mg": "cetirizine 10mg",
-    "city rizin 10mg": "cetirizine 10mg",
-    "city rizin": "cetirizine 10mg",
-    "citirizine 10 mg": "cetirizine 10mg",
-    "citirizine 10mg": "cetirizine 10mg",
-    "citirizine": "cetirizine 10mg",
-    "reso plus": "razo plus"
-}
-
-LAST_DISAMBIGUATION_STATE = {}
-
-def get_disambiguation_prompt(term: str, matches: list) -> Dict[str, str]:
-    """Format an ultra-low token disambiguation prompt when multiple medicine variants match."""
-    top_matches = matches[:5]
-    variants = []
-    for m in top_matches:
-        pkg = m.get("package_type")
-        name = m.get("medicine_name")
-        p_code = m.get("product_code")
-        code_str = f" [Code: {p_code}]" if p_code else ""
-        if pkg:
-            variants.append(f"{name}{code_str} ({pkg})")
-        else:
-            variants.append(f"{name}{code_str}")
-            
-    variants_str = ", ".join(variants)
-    examples_str = f"such as {variants[0]}" if variants else ""
-    if len(variants) > 1:
-        examples_str += f" or {variants[1]}"
-        
-    prompt = (
-        f" '{term}': {variants_str}. "
-        f"Ask the caller specifically which variant or form they need ({examples_str})."
-    )
-    return {"agent_prompt": prompt}
 
 def normalize_dosage(text: str) -> str:
     """Normalize dosage strings and common STT multi-word phonetics."""
@@ -124,6 +69,8 @@ def split_brand_and_dosage(text: str):
     brand_base = re.sub(r'\b(?:mg|g|ml|mcg|kg|l)\b', '', brand_base)
     brand_base = re.sub(r'\s+', ' ', brand_base).strip()
     return brand_base, dosages
+
+LAST_DISAMBIGUATION_STATE = {}
 
 def get_best_fuzzy_match(term: str, all_data: list):
     """
@@ -192,43 +139,15 @@ def get_best_fuzzy_match(term: str, all_data: list):
     # Moderate score candidates -> Return for disambiguation
     return None, [m for s, m in scored[:5]]
 
-def check_medicine_stock(medicine_name: Optional[Union[str, List[Any], Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """Check stock for specific medicine(s) or return full catalogue prompt if no name is provided."""
-    all_data = db.get_all_medicines_details()
-    if not medicine_name:
-        return get_medicine_catalogue_prompt(all_data)
-        
-    def extract_terms(val):
-        terms = []
-        if not val:
-            return terms
-        if isinstance(val, str):
-            val_str = val.strip()
-            if val_str.startswith("[") or val_str.startswith("{"):
-                import json, ast
-                try:
-                    parsed = json.loads(val_str)
-                    return extract_terms(parsed)
-                except Exception:
-                    try:
-                        parsed = ast.literal_eval(val_str)
-                        return extract_terms(parsed)
-                    except Exception:
-                        pass
-            terms.extend([s.strip().strip("'\"[]").lower() for s in val_str.split(",") if s.strip()])
-        elif isinstance(val, list):
-            for item in val:
-                terms.extend(extract_terms(item))
-        elif isinstance(val, dict):
-            for k in ["medicine_name", "medicines", "medicine", "name"]:
-                if val.get(k):
-                    terms.extend(extract_terms(val[k]))
-        return terms
+def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
+       
+    all_data = db.get_medicine_details(medicine_name)  
 
-    raw_terms = extract_terms(medicine_name)
+ 
+    if not medicine_name or not isinstance(medicine_name, str) or not medicine_name.strip():
+        return {"agent_prompt": "Please specify a valid medicine name."}
 
-    if not raw_terms or any(t in ["all", "every", "full", "catalogue", "catalog", "everything"] for t in raw_terms):
-        return get_medicine_catalogue_prompt(all_data)
+    raw_t = medicine_name.strip()
 
     # Pre-normalize medicine names ONCE for ultra-fast matching (< 0.05s for 100 items)
     exact_map = {}
@@ -243,53 +162,42 @@ def check_medicine_stock(medicine_name: Optional[Union[str, List[Any], Dict[str,
     seen_confirmed = set()
 
     learned_aliases = db.get_learned_stt_aliases()
-    combined_aliases = {**PHONETIC_ALIASES, **learned_aliases}
+    
+    combined_aliases = learned_aliases
 
-    for raw_t in raw_terms:
-        raw_clean = raw_t.strip().lower()
-        if raw_clean in LAST_DISAMBIGUATION_STATE:
-            stt_wrong_word = LAST_DISAMBIGUATION_STATE.pop(raw_clean)
-            db.save_learned_stt_alias(stt_wrong_word, raw_t.strip())
+    raw_clean = raw_t.strip().lower()
+   
+    # adding the misspellings to the combined_aliases
+    if raw_clean in LAST_DISAMBIGUATION_STATE:
+        stt_wrong_word = LAST_DISAMBIGUATION_STATE.pop(raw_clean)
+        db.save_learned_stt_alias(stt_wrong_word, raw_t.strip())
 
-        search_t = combined_aliases.get(raw_clean, raw_t)
-        norm_search_t = normalize_dosage(search_t)
-        
-        # O(1) Fast Exact Match
-        exact = exact_map.get(norm_search_t, [])
-        prefix_variants = [m for m in all_data if m["norm_name"].startswith(norm_search_t + " ")]
-        
-        if len(exact) == 1:
-            if prefix_variants and len(norm_search_t.split()) == 1:
-                all_matched_variants = exact + prefix_variants
-                top_v = [f"{m['medicine_name']} ({m.get('package_type', '')})" for m in all_matched_variants[:5]]
-                first_v = top_v[0]
-                for cand in all_matched_variants[:5]:
-                    c_name = cand['medicine_name'].strip().lower()
-                    LAST_DISAMBIGUATION_STATE[c_name] = raw_t.strip().lower()
-                second_v = top_v[1] if len(top_v) > 1 else ""
-                disambiguation_notes.append(
-                    f"For requested medicine '{raw_t}': : [{', '.join(top_v)}]. "
-                    f"Ask caller to confirm '{first_v}'."
-                )
-            else:
-                m = exact[0]
-                if m["medicine_name"] not in seen_confirmed:
-                    seen_confirmed.add(m["medicine_name"])
-                    confirmed_matches.append(m)
-            continue
-        elif len(exact) > 1:
-            top_v = [f"{m['medicine_name']} ({m.get('package_type', '')})" for m in exact[:5]]
-            first_v = top_v[0]
-            for cand in exact[:5]:
-                c_name = cand['medicine_name'].strip().lower()
-                LAST_DISAMBIGUATION_STATE[c_name] = raw_t.strip().lower()
-            second_v = top_v[1] if len(top_v) > 1 else ""
-            disambiguation_notes.append(
-                f"For requested medicine '{raw_t}': : [{', '.join(top_v)}]. "
-                f"INSTRUCTION: If there are muliple variants found for partcular medcine then get confirmation from the user if ha for  '{first_v}' and if person says ok/yes/ then same quation needs to ask for the remaining medicines.?'. "
-            )
-            continue
+    search_t = combined_aliases.get(raw_clean, raw_t)
+    norm_search_t = normalize_dosage(search_t)
+    
+    # O(1) Fast Exact Match
+    exact = exact_map.get(norm_search_t, [])
+    prefix_variants = [m for m in all_data if m["norm_name"].startswith(norm_search_t + " ")]
+    
+    if (len(exact) == 0 and prefix_variants) or (len(exact) == 1 and prefix_variants and len(norm_search_t.split()) == 1) or len(exact) > 1:
+        all_matched_variants = (exact + prefix_variants) if len(exact) <= 1 else exact
+        top_v_str = ", ".join([f"{m['medicine_name']}" + (f" [Code: {m.get('product_code')}]" if m.get('product_code') else "") for m in all_matched_variants[:5]])
+        for cand in all_matched_variants[:5]:
+            c_name = cand['medicine_name'].strip().lower()
+            LAST_DISAMBIGUATION_STATE[c_name] = raw_t.strip().lower()
+        disambiguation_notes.append(
+            f"For requested medicine '{raw_t}': [{top_v_str}]. "
+            f"INSTRUCTION: Multiple variants are available ({top_v_str}). "
+            f"Inform the caller that multiple variants/dosages are available for '{raw_t}' and ask them to specify which exact form or dosage they need."
+        )
 
+    elif len(exact) == 1:
+        m = exact[0]
+        if m["medicine_name"] not in seen_confirmed:
+            seen_confirmed.add(m["medicine_name"])
+            confirmed_matches.append(m)
+
+    else:
         # Smart High-Confidence Fuzzy Auto-Resolution
         best_match, fuzzy_candidates = get_best_fuzzy_match(search_t, all_data)
         if best_match:
@@ -360,6 +268,6 @@ def check_medicine_stock(medicine_name: Optional[Union[str, List[Any], Dict[str,
             return {"agent_prompt": final_prompt}
         return base_resp
 
-    # Default fallback: full catalogue prompt
+    
     return get_medicine_catalogue_prompt([])
 
