@@ -22,6 +22,8 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
         return []
 
     clean_name = medicine_name.strip()
+    first_word = clean_name.split()[0] if clean_name else clean_name
+    first_3 = clean_name[:3] if len(clean_name) >= 3 else clean_name
     try:
         with engine.connect() as connection:
             query = text("""
@@ -35,25 +37,21 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
                 FROM product_m p 
                 JOIN batch_m b ON p.product_code = b.product_code
                 JOIN generic_m g ON p.generic_code = g.generic_code 
-                WHERE LEFT(p.product_name, 1) = :first_char
-                  AND (
-                      DIFFERENCE(p.product_name, :med_name) >= 3 
-                      OR p.product_name LIKE :med_like
-                  )
+                WHERE p.product_name ILIKE :med_like
+                   OR p.product_name ILIKE :first_word_like
+                   OR LOWER(LEFT(p.product_name, 3)) = LOWER(:first_3)
+                   OR LOWER(LEFT(p.product_name, 1)) = LOWER(:first_char)
                 GROUP BY p.product_code, p.product_name, g.generic_name, p.package_type
-                ORDER BY 
-                    CASE 
-                        WHEN p.product_name LIKE :med_like THEN 1 
-                        ELSE 2 
-                    END,
-                    DIFFERENCE(p.product_name, :med_name) DESC
+                ORDER BY p.product_name ASC
             """)
             results = connection.execute(
                 query, 
                 {
                     "med_name": clean_name, 
                     "first_char": clean_name[0], 
-                    "med_like": f"%{clean_name}%"
+                    "med_like": f"%{clean_name}%",
+                    "first_word_like": f"%{first_word}%",
+                    "first_3": first_3
                 }
             ).fetchall()
             
@@ -172,18 +170,16 @@ def place_bulk_order(data) -> str:
                     # Fallback lookup by medicine_name if p_code was invalid/non-numeric or not found
                     if not row and m_name:
                         stk_query = text("""
-                            SELECT TOP 1 p.product_code, p.product_name, p.package_type, SUM(b.stock_quantity) as total_stock
+                            SELECT p.product_code, p.product_name, p.package_type, SUM(b.stock_quantity) as total_stock
                             FROM product_m p 
                             JOIN batch_m b ON p.product_code = b.product_code
                             WHERE LOWER(p.product_name) = LOWER(:m_name)
                                OR LOWER(p.product_name) LIKE LOWER(:like_m_name)
-                               OR DIFFERENCE(LOWER(p.product_name), LOWER(:m_name)) >= 3
                             GROUP BY p.product_code, p.product_name, p.package_type
                             ORDER BY 
                                CASE WHEN LOWER(p.product_name) = LOWER(:m_name) THEN 1
-                                    WHEN LOWER(p.product_name) LIKE LOWER(:like_m_name) THEN 2
-                                    ELSE 3 END,
-                               DIFFERENCE(LOWER(p.product_name), LOWER(:m_name)) DESC
+                                    ELSE 2 END
+                            LIMIT 1
                         """)
                         clean_name = str(m_name).strip()
                         row = connection.execute(stk_query, {
@@ -207,15 +203,7 @@ def place_bulk_order(data) -> str:
         with engine.begin() as connection:
             # Ensure product_code column exists in order_m table
             try:
-                connection.execute(text("""
-                    IF NOT EXISTS (
-                        SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                        WHERE TABLE_NAME = 'order_m' AND COLUMN_NAME = 'product_code'
-                    )
-                    BEGIN
-                        ALTER TABLE order_m ADD product_code VARCHAR(50);
-                    END
-                """))
+                connection.execute(text("ALTER TABLE order_m ADD COLUMN IF NOT EXISTS product_code VARCHAR(50);"))
             except Exception:
                 pass
 
@@ -235,16 +223,14 @@ def place_bulk_order(data) -> str:
                         clean_m_name = str(medicine_name or p_code).strip()
                         code_row = connection.execute(
                             text("""
-                                SELECT TOP 1 product_code, product_name 
+                                SELECT product_code, product_name 
                                 FROM product_m 
                                 WHERE LOWER(product_name) = LOWER(:m_name) 
                                    OR LOWER(product_name) LIKE LOWER(:like_m_name)
-                                   OR DIFFERENCE(LOWER(product_name), LOWER(:m_name)) >= 3 
                                 ORDER BY 
                                    CASE WHEN LOWER(product_name) = LOWER(:m_name) THEN 1 
-                                        WHEN LOWER(product_name) LIKE LOWER(:like_m_name) THEN 2 
-                                        ELSE 3 END,
-                                   DIFFERENCE(LOWER(product_name), LOWER(:m_name)) DESC
+                                        ELSE 2 END
+                                LIMIT 1
                             """),
                             {"m_name": clean_m_name, "like_m_name": f"%{clean_m_name}%"}
                         ).fetchone()
@@ -280,23 +266,19 @@ def search_medicine_fuzzy(terms: list) -> list:
                 prefix_term = f"{clean_term}%"
                 contains_term = f"%{clean_term}%"
                 query = text("""
-                    SELECT TOP 6 
+                    SELECT 
                         p.product_name,
                         p.package_type,
                         SUM(b.stock_quantity) as total_stock, 
-                        MIN(b.selling_price) as min_price,
-                        DIFFERENCE(LOWER(p.product_name), LOWER(:term)) as score
+                        MIN(b.selling_price) as min_price
                     FROM product_m p 
                     JOIN batch_m b ON p.product_code = b.product_code
-                    WHERE LOWER(p.product_name) LIKE LOWER(:prefix_term)
-                       OR LOWER(p.product_name) LIKE LOWER(:contains_term)
-                       OR DIFFERENCE(LOWER(p.product_name), LOWER(:term)) >= 3
+                    WHERE p.product_name ILIKE :contains_term
                     GROUP BY p.product_code, p.product_name, p.package_type
-                    ORDER BY score DESC, LOWER(p.product_name) ASC
+                    ORDER BY LOWER(p.product_name) ASC
+                    LIMIT 6
                 """)
                 rows = connection.execute(query, {
-                    "term": clean_term,
-                    "prefix_term": prefix_term,
                     "contains_term": contains_term
                 }).fetchall()
                 for row in rows:

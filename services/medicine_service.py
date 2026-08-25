@@ -113,6 +113,12 @@ def get_best_fuzzy_match(term: str, all_data: list):
             else:
                 # Different dosage specified (e.g. Dolo 500 vs Dolo 650)
                 score = min(brand_score, 0.58)
+        elif not d_t and not d_m:
+            # User specified no dosage & candidate has no extra dosage -> Boost preference
+            score = brand_score + 0.05
+        elif not d_t and d_m:
+            # Candidate has specific dosage number not requested -> Slight penalty
+            score = brand_score - 0.02
         else:
             score = brand_score
 
@@ -142,6 +148,8 @@ def get_best_fuzzy_match(term: str, all_data: list):
 def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
        
     all_data = db.get_medicine_details(medicine_name)  
+    if not all_data and medicine_name:
+        all_data = db.search_medicine_fuzzy([medicine_name])
 
  
     if not medicine_name or not isinstance(medicine_name, str) or not medicine_name.strip():
@@ -208,7 +216,7 @@ def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
                 f"INSTRUCTION: Multiple possible matches were found due to possible STT/phonetic spelling differences. "
                 f"Treat '{first_v}{code_str}' as the most likely intended medicine and ask the user for confirmation using a natural question such as 'Kya aap {first_v} ki baat kar rahe hain?'. "
                 f"Do not mention or list the other possible matches to the user. Wait for the user's response before continuing. "
-                f"If the user confirms with 'yes', 'ok', 'haan', or equivalent, YOU MUST call the save_stt_alias tool with stt_mishearing='{raw_t}' and correct_medicine='{first_v}', and accept '{first_v}'{code_str} as the requested medicine. "
+                f"If the user confirms with 'yes', 'ok', 'haan', or equivalent, accept '{first_v}'{code_str} as the requested medicine. "
                 f"After confirmation, continue processing the remaining medicines one by one in their original order. "
                 f"Do not ask about or mention any remaining medicine in the same response as the confirmation question."
             )
@@ -219,8 +227,8 @@ def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
     if not_found_terms:
         formatted_names = ", ".join([f"'{t}'" for t in not_found_terms])
         not_found_text = (
-            f"Requested medicine(s) {formatted_names} is NOT available in our database or inventory. "
-            f"Inform the caller politely that {formatted_names} is currently out of stock / not available. "
+            f"Requested medicine(s) {formatted_names} is NOT available  "
+            f"Inform the caller politely that {formatted_names} is not available. "
             f"DO NOT suggest, invent, or offer any alternative medicine names or brand names from memory or general knowledge unless explicit substitutes are provided in the stock response."
         )
 
