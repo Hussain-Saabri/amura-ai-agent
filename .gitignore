@@ -34,3 +34,9 @@ transcripts/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Pytest & Coverage generated files
+.pytest_cache/
+.coverage
+htmlcov/
+
