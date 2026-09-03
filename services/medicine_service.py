@@ -60,11 +60,12 @@ def normalize_dosage(text: str) -> str:
     return normalized
 
 def split_brand_and_dosage(text: str):
-    """Separate medicine brand/base name from dosage numbers."""
+    """Separate medicine brand/base name from dosage numbers and units."""
     if not text:
         return "", set()
     text_clean = normalize_dosage(text)
-    dosages = set(re.findall(r'\b\d+(?:\.\d+)?\b', text_clean))
+    dosages = set(re.findall(r'\b\d+(?:\.\d+)?(?:mg|g|ml|mcg|kg|l)?\b', text_clean))
+    dosages.update(set(re.findall(r'\b\d+(?:\.\d+)?', text_clean)))
     brand_base = re.sub(r'\b\d+(?:\.\d+)?(?:mg|g|ml|mcg|kg|l)?\b', '', text_clean).strip()
     brand_base = re.sub(r'\b(?:mg|g|ml|mcg|kg|l)\b', '', brand_base)
     brand_base = re.sub(r'\s+', ' ', brand_base).strip()
@@ -104,15 +105,15 @@ def get_best_fuzzy_match(term: str, all_data: list):
         else:
             brand_score = 1.0 if (b_t == b_m) else 0.0
 
-        if brand_score < 0.68:
+        if brand_score < 0.50:
             continue
 
         if d_t and d_m:
             if d_t == d_m:
-                score = brand_score
+                score = min(1.0, brand_score + 0.10)
             else:
                 # Different dosage specified (e.g. Dolo 500 vs Dolo 650)
-                score = min(brand_score, 0.58)
+                score = min(brand_score, 0.55)
         elif not d_t and not d_m:
             # User specified no dosage & candidate has no extra dosage -> Boost preference
             score = brand_score + 0.05

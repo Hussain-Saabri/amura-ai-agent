@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api", tags=["Medicines"])
     description="Check stock, price, substitutes, and variants for a medicine."
 )
 
+
 async def check_medicine(
     request: Request,
     medicine_name: str | None = Query(

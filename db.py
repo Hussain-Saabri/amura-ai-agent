@@ -15,15 +15,22 @@ engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=20)
 
 def get_medicine_details(medicine_name: Optional[str] = None) -> list:
     """
-    Returns medicines matching medicine_name using direct MSSQL DIFFERENCE() and LIKE filtering.
+    Returns medicines matching medicine_name using PostgreSQL similarity() and ILIKE filtering.
     Returns empty list if no medicine_name is provided.
     """
     if not medicine_name or not isinstance(medicine_name, str) or not medicine_name.strip():
         return []
 
+    import re
     clean_name = medicine_name.strip()
     first_word = clean_name.split()[0] if clean_name else clean_name
     first_3 = clean_name[:3] if len(clean_name) >= 3 else clean_name
+    
+    brand_base = re.sub(r'\b\d+(?:\.\d+)?(?:mg|g|ml|mcg|kg|l)?\b', '', clean_name, flags=re.IGNORECASE).strip()
+    brand_base = re.sub(r'\b(?:mg|g|ml|mcg|kg|l)\b', '', brand_base, flags=re.IGNORECASE).strip()
+    if not brand_base:
+        brand_base = first_word
+
     try:
         with engine.connect() as connection:
             query = text("""
@@ -39,18 +46,27 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
                 JOIN generic_m g ON p.generic_code = g.generic_code 
                 WHERE p.product_name ILIKE :med_like
                    OR p.product_name ILIKE :first_word_like
+                   OR p.product_name ILIKE :brand_base_like
+                   OR similarity(p.product_name, :med_name) > 0.2
+                   OR similarity(p.product_name, :brand_base) > 0.2
                    OR LOWER(LEFT(p.product_name, 3)) = LOWER(:first_3)
-                   OR LOWER(LEFT(p.product_name, 1)) = LOWER(:first_char)
                 GROUP BY p.product_code, p.product_name, g.generic_name, p.package_type
-                ORDER BY p.product_name ASC
+                ORDER BY 
+                   GREATEST(
+                       similarity(p.product_name, :med_name),
+                       similarity(p.product_name, :brand_base)
+                   ) DESC,
+                   p.product_name ASC
+                LIMIT 50
             """)
             results = connection.execute(
                 query, 
                 {
                     "med_name": clean_name, 
-                    "first_char": clean_name[0], 
+                    "brand_base": brand_base,
                     "med_like": f"%{clean_name}%",
                     "first_word_like": f"%{first_word}%",
+                    "brand_base_like": f"%{brand_base}%",
                     "first_3": first_3
                 }
             ).fetchall()
@@ -252,7 +268,7 @@ def place_bulk_order(data) -> str:
 
 def search_medicine_fuzzy(terms: list) -> list:
     """
-    Trigram Similarity & Prefix Search for 10,000+ items.
+    Trigram Similarity & Prefix Search for 10,000+ items using pg_trgm.
     Returns multiple matching variants capped at 6.
     """
     if not terms:
@@ -263,7 +279,6 @@ def search_medicine_fuzzy(terms: list) -> list:
         with engine.connect() as connection:
             for term in terms:
                 clean_term = term.strip()
-                prefix_term = f"{clean_term}%"
                 contains_term = f"%{clean_term}%"
                 query = text("""
                     SELECT 
@@ -274,12 +289,14 @@ def search_medicine_fuzzy(terms: list) -> list:
                     FROM product_m p 
                     JOIN batch_m b ON p.product_code = b.product_code
                     WHERE p.product_name ILIKE :contains_term
+                       OR similarity(p.product_name, :clean_term) > 0.25
                     GROUP BY p.product_code, p.product_name, p.package_type
-                    ORDER BY LOWER(p.product_name) ASC
+                    ORDER BY similarity(p.product_name, :clean_term) DESC, LOWER(p.product_name) ASC
                     LIMIT 6
                 """)
                 rows = connection.execute(query, {
-                    "contains_term": contains_term
+                    "contains_term": contains_term,
+                    "clean_term": clean_term
                 }).fetchall()
                 for row in rows:
                     if row.product_name not in seen:
@@ -301,8 +318,9 @@ def search_medicine_fuzzy(terms: list) -> list:
 def check_db_connection():
     try:
         with engine.connect() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
             connection.execute(text("SELECT 1"))
-            logger.info("✅ Database connected successfully!")
+            logger.info("✅ Database connected successfully with pg_trgm!")
             return True
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
