@@ -36,8 +36,8 @@ def parse_items_node(node):
                 items.append(node)
     return items
 
-def place_order(req: UnifiedOrderRequest) -> Dict[str, Any]:
-    result = db.place_bulk_order(req)
+async def place_order(req: UnifiedOrderRequest) -> Dict[str, Any]:
+    result = await db.place_bulk_order(req)
     return {"status": "success", "message": result}
 
 

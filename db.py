@@ -2,7 +2,8 @@ import os
 import logging
 from typing import Optional
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
 
 load_dotenv()
 
@@ -11,9 +12,13 @@ logger = logging.getLogger("uvicorn.info")
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL is not set in environment variables / .env file.")
-engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=20)
 
-def get_medicine_details(medicine_name: Optional[str] = None) -> list:
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+engine = create_async_engine(DATABASE_URL, pool_size=10, max_overflow=20)
+
+async def get_medicine_details(medicine_name: Optional[str] = None) -> list:
     """
     Returns medicines matching medicine_name using PostgreSQL similarity() and ILIKE filtering.
     Returns empty list if no medicine_name is provided.
@@ -32,7 +37,7 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
         brand_base = first_word
 
     try:
-        with engine.connect() as connection:
+        async with engine.connect() as connection:
             query = text("""
                 SELECT 
                     p.product_code,
@@ -59,7 +64,7 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
                    p.product_name ASC
                 LIMIT 50
             """)
-            results = connection.execute(
+            result = await connection.execute(
                 query, 
                 {
                     "med_name": clean_name, 
@@ -69,7 +74,8 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
                     "brand_base_like": f"%{brand_base}%",
                     "first_3": first_3
                 }
-            ).fetchall()
+            )
+            results = result.fetchall()
             
             available_by_generic = {}
             parsed_results = []
@@ -112,7 +118,7 @@ def get_medicine_details(medicine_name: Optional[str] = None) -> list:
 
 
 
-def place_bulk_order(data) -> str:
+async def place_bulk_order(data) -> str:
     import json
     import ast
     
@@ -165,7 +171,7 @@ def place_bulk_order(data) -> str:
     # Stock validation pass
     stock_errors = []
     try:
-        with engine.connect() as connection:
+        async with engine.connect() as connection:
             for item in items_list:
                 if isinstance(item, dict):
                     p_code = item.get("product_code") or item.get("product_id")
@@ -181,7 +187,8 @@ def place_bulk_order(data) -> str:
                             WHERE p.product_code = :p_code
                             GROUP BY p.product_code, p.product_name, p.package_type
                         """)
-                        row = connection.execute(stk_query, {"p_code": str(p_code)}).fetchone()
+                        result = await connection.execute(stk_query, {"p_code": str(p_code)})
+                        row = result.fetchone()
 
                     # Fallback lookup by medicine_name if p_code was invalid/non-numeric or not found
                     if not row and m_name:
@@ -198,10 +205,11 @@ def place_bulk_order(data) -> str:
                             LIMIT 1
                         """)
                         clean_name = str(m_name).strip()
-                        row = connection.execute(stk_query, {
+                        result = await connection.execute(stk_query, {
                             "m_name": clean_name,
                             "like_m_name": f"%{clean_name}%"
-                        }).fetchone()
+                        })
+                        row = result.fetchone()
 
                     if row:
                         avail = int(row.total_stock) if row.total_stock else 0
@@ -216,10 +224,10 @@ def place_bulk_order(data) -> str:
         if stock_errors:
             return "Order placement failed due to stock limits: " + " | ".join(stock_errors)
 
-        with engine.begin() as connection:
+        async with engine.begin() as connection:
             # Ensure product_code column exists in order_m table
             try:
-                connection.execute(text("ALTER TABLE order_m ADD COLUMN IF NOT EXISTS product_code VARCHAR(50);"))
+                await connection.execute(text("ALTER TABLE order_m ADD COLUMN IF NOT EXISTS product_code VARCHAR(50);"))
             except Exception:
                 pass
 
@@ -237,7 +245,7 @@ def place_bulk_order(data) -> str:
                     
                     if not p_code or not str(p_code).isdigit():
                         clean_m_name = str(medicine_name or p_code).strip()
-                        code_row = connection.execute(
+                        result = await connection.execute(
                             text("""
                                 SELECT product_code, product_name 
                                 FROM product_m 
@@ -249,12 +257,13 @@ def place_bulk_order(data) -> str:
                                 LIMIT 1
                             """),
                             {"m_name": clean_m_name, "like_m_name": f"%{clean_m_name}%"}
-                        ).fetchone()
+                        )
+                        code_row = result.fetchone()
                         if code_row:
                             p_code = code_row.product_code
                             medicine_name = code_row.product_name
 
-                    connection.execute(query, {
+                    await connection.execute(query, {
                         "product_code": str(p_code) if p_code else None,
                         "medicine_name": medicine_name, 
                         "quantity": quantity
@@ -266,7 +275,7 @@ def place_bulk_order(data) -> str:
         return f"Failed to save order: {e}"
 
 
-def search_medicine_fuzzy(terms: list) -> list:
+async def search_medicine_fuzzy(terms: list) -> list:
     """
     Trigram Similarity & Prefix Search for 10,000+ items using pg_trgm.
     Returns multiple matching variants capped at 6.
@@ -276,7 +285,7 @@ def search_medicine_fuzzy(terms: list) -> list:
     results = []
     seen = set()
     try:
-        with engine.connect() as connection:
+        async with engine.connect() as connection:
             for term in terms:
                 clean_term = term.strip()
                 contains_term = f"%{clean_term}%"
@@ -294,10 +303,11 @@ def search_medicine_fuzzy(terms: list) -> list:
                     ORDER BY similarity(p.product_name, :clean_term) DESC, LOWER(p.product_name) ASC
                     LIMIT 6
                 """)
-                rows = connection.execute(query, {
+                result = await connection.execute(query, {
                     "contains_term": contains_term,
                     "clean_term": clean_term
-                }).fetchall()
+                })
+                rows = result.fetchall()
                 for row in rows:
                     if row.product_name not in seen:
                         seen.add(row.product_name)
@@ -315,11 +325,11 @@ def search_medicine_fuzzy(terms: list) -> list:
     return results
 
 
-def check_db_connection():
+async def check_db_connection():
     try:
-        with engine.connect() as connection:
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-            connection.execute(text("SELECT 1"))
+        async with engine.connect() as connection:
+            await connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await connection.execute(text("SELECT 1"))
             logger.info("✅ Database connected successfully with pg_trgm!")
             return True
     except Exception as e:
@@ -327,7 +337,7 @@ def check_db_connection():
         return False
 
 
-def get_medicine_stock(medicine_name=None):
+async def get_medicine_stock(medicine_name=None):
     from services.medicine_service import check_medicine_stock
-    return check_medicine_stock(medicine_name)
+    return await check_medicine_stock(medicine_name)
 

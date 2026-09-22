@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from routers.medicine_router import router as medicine_router
 from routers.order_router import router as order_router
 from db import check_db_connection
-
+from pyngrok import ngrok
 load_dotenv()
 
 app = FastAPI(
@@ -20,6 +20,17 @@ app.include_router(order_router)
 def root():
     return {"message": "Amura Healthcare Voice AI Agent is running"}
 
+import os
+
+
 @app.on_event("startup")
-def startup_db_check():
-    check_db_connection()
+async def startup_db_check():
+    await check_db_connection()
+    port = int(os.environ.get("PORT", 8000))
+    public_url = ngrok.connect(port).public_url
+    print(f"ngrok tunnel \"{public_url}\" -> \"http://127.0.0.1:{port}\"")
+    
+
+
+
+

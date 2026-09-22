@@ -25,6 +25,6 @@ async def api_place_order(request: Request):
             pass
             
     req = UnifiedOrderRequest(**data) if data else UnifiedOrderRequest()
-    return order_controller.place_order_controller(req)
+    return await order_controller.place_order_controller(req)
 
 

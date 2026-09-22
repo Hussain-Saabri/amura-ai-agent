@@ -146,11 +146,11 @@ def get_best_fuzzy_match(term: str, all_data: list):
     # Moderate score candidates -> Return for disambiguation
     return None, [m for s, m in scored[:5]]
 
-def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
+async def check_medicine_stock(medicine_name: Optional[str] = None) -> Dict[str, Any]:
        
-    all_data = db.get_medicine_details(medicine_name)  
+    all_data = await db.get_medicine_details(medicine_name)  
     if not all_data and medicine_name:
-        all_data = db.search_medicine_fuzzy([medicine_name])
+        all_data = await db.search_medicine_fuzzy([medicine_name])
 
  
     if not medicine_name or not isinstance(medicine_name, str) or not medicine_name.strip():

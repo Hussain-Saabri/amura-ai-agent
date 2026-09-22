@@ -43,7 +43,7 @@ async def check_medicine(
             pass
 
     logger.info(f"[AI REQUEST - /api/check-medicine]: medicine_name='{medicine_name}'")
-    res = medicine_controller.check_medicine_controller(medicine_name)
+    res = await medicine_controller.check_medicine_controller(medicine_name)
     agent_prompt = res.get("agent_prompt") if isinstance(res, dict) else res
     logger.info(f"📤 [AI RESPONSE agent_prompt]:\n{agent_prompt}\n")
     return res

@@ -40,5 +40,4 @@ desktop.ini
 .coverage
 htmlcov/
 
-# Ignore voiceover partial files
-voiceover_par*
+
